@@ -1,0 +1,9 @@
+.container {
+  text-align: center;
+  padding: 40px;
+}
+
+textarea {
+  width: 80%;
+  margin-top: 20px;
+}
