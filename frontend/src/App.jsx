@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import "./App.css";
 
 function App() {
-  const [image, setImage] = useState(null);
+  const [file, setFile] = useState(null);
   const [text, setText] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
   const [error, setError] = useState("");
@@ -11,38 +11,44 @@ function App() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (!image) {
-      setPreviewUrl("");
-      return undefined;
-    }
-
-    const nextUrl = URL.createObjectURL(image);
-    setPreviewUrl(nextUrl);
-    return () => URL.revokeObjectURL(nextUrl);
-  }, [image]);
-
-  const applyFile = (file) => {
-    if (!file) return;
-
-    const isImage = file.type.startsWith("image/");
-    if (!isImage) {
-      setError("Please select a valid image file (PNG, JPG, JPEG, TIFF).");
-      setImage(null);
+    if (!file) {
       setPreviewUrl("");
       return;
     }
 
+    // Image preview only
+    if (file.type.startsWith("image/")) {
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+
+    setPreviewUrl("");
+  }, [file]);
+
+  const applyFile = (selectedFile) => {
+    if (!selectedFile) return;
+
+    const isImage = selectedFile.type.startsWith("image/");
+    const isPdf = selectedFile.type === "application/pdf";
+
+    if (!isImage && !isPdf) {
+      setError("Supported formats: PNG, JPG, JPEG, TIFF, PDF.");
+      setFile(null);
+      return;
+    }
+
     setError("");
-    setImage(file);
+    setFile(selectedFile);
   };
 
-  const handleFileChange = (event) => {
-    const file = event.target.files?.[0];
-    applyFile(file);
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files?.[0];
+    applyFile(selectedFile);
   };
 
   const resetAll = () => {
-    setImage(null);
+    setFile(null);
     setText("");
     setError("");
     setCopied(false);
@@ -50,12 +56,12 @@ function App() {
 
   const copyToClipboard = async () => {
     if (!text) return;
+
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 1400);
+      setTimeout(() => setCopied(false), 1400);
     } catch {
-      // Fallback for older browsers
       const textarea = document.createElement("textarea");
       textarea.value = text;
       textarea.setAttribute("readonly", "true");
@@ -66,13 +72,13 @@ function App() {
       document.execCommand("copy");
       document.body.removeChild(textarea);
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 1400);
+      setTimeout(() => setCopied(false), 1400);
     }
   };
 
-  const uploadImage = async () => {
-    if (!image) {
-      setError("Add an image before extracting text.");
+  const uploadFile = async () => {
+    if (!file) {
+      setError("Add a file before extracting text.");
       return;
     }
 
@@ -81,7 +87,7 @@ function App() {
     setCopied(false);
 
     const formData = new FormData();
-    formData.append("image", image);
+    formData.append("file", file);
 
     try {
       const response = await fetch("http://127.0.0.1:5000/ocr", {
@@ -89,15 +95,23 @@ function App() {
         body: formData
       });
 
-      if (!response.ok) {
-        throw new Error("The server could not process this image. Try again.");
+      let data = null;
+      try {
+        data = await response.json();
+      } catch {
+        data = null;
       }
 
-      const data = await response.json();
-      setText(data.text || "");
+      if (!response.ok) {
+        throw new Error(
+          data?.error || `Request failed (${response.status}). Please try again.`
+        );
+      }
+
+      setText(data?.text || "");
     } catch (err) {
       setText("");
-      setError(err.message || "Something went wrong. Please try again.");
+      setError(err.message || "Something went wrong.");
     } finally {
       setIsLoading(false);
     }
@@ -109,31 +123,36 @@ function App() {
         <p className="eyebrow">Industrial-grade OCR Utility</p>
         <h1>Extracto OCR</h1>
         <p className="lede">
-          Upload an image, extract the text, and keep your workflow moving with
-          a clean, reliable interface.
+          Upload an image or scanned PDF and extract text instantly.
         </p>
       </header>
 
       <main className="grid">
+        {/* STEP 1 */}
         <section className="card">
           <div className="card-header">
             <div>
               <p className="eyebrow">Step 1</p>
-              <h2>Upload an image</h2>
+              <h2>Upload a file</h2>
               <p className="muted">
-                Supported formats: PNG, JPG, JPEG, TIFF. Max 10 MB recommended.
+                Supported formats: PNG, JPG, JPEG, TIFF, PDF.
               </p>
             </div>
+
             <div className="status-row">
               <span
                 className={`status-dot ${
-                  error ? "status-error" : image ? "status-ready" : "status-idle"
+                  error
+                    ? "status-error"
+                    : file
+                    ? "status-ready"
+                    : "status-idle"
                 }`}
               />
               <span className="status-label">
                 {error
                   ? "Needs attention"
-                  : image
+                  : file
                   ? "Ready to extract"
                   : "Waiting for file"}
               </span>
@@ -145,80 +164,74 @@ function App() {
             htmlFor="file-input"
             onDragEnter={(e) => {
               e.preventDefault();
-              e.stopPropagation();
               setIsDragging(true);
             }}
             onDragOver={(e) => {
               e.preventDefault();
-              e.stopPropagation();
               setIsDragging(true);
             }}
             onDragLeave={(e) => {
               e.preventDefault();
-              e.stopPropagation();
               setIsDragging(false);
             }}
             onDrop={(e) => {
               e.preventDefault();
-              e.stopPropagation();
               setIsDragging(false);
-              const file = e.dataTransfer?.files?.[0];
-              applyFile(file);
+              applyFile(e.dataTransfer.files?.[0]);
             }}
           >
             {previewUrl ? (
-              <img src={previewUrl} alt="Selected" className="preview" />
+              <img src={previewUrl} alt="Preview" className="preview" />
+            ) : file?.type === "application/pdf" ? (
+              <div className="file-drop__placeholder">
+                <div className="icon-circle">📄</div>
+                <p className="drop-title">PDF selected</p>
+                <p className="muted small">Scanned PDFs are supported</p>
+              </div>
             ) : (
               <div className="file-drop__placeholder">
-                <div className="icon-circle" aria-hidden="true">
-                  ⬆️
-                </div>
+                <div className="icon-circle">⬆️</div>
                 <p className="drop-title">Drag & drop, or click to browse</p>
                 <p className="muted small">
-                  High-contrast scans deliver the best results.
+                  High-contrast scans work best.
                 </p>
               </div>
             )}
           </label>
+
           <input
             id="file-input"
             type="file"
-            accept="image/*"
+            accept="image/*,.pdf"
             onChange={handleFileChange}
             className="visually-hidden"
           />
 
           <div className="actions">
             <label className="btn secondary" htmlFor="file-input">
-              Choose Image
+              Choose File
             </label>
+
             <button
               className="btn primary"
-              onClick={uploadImage}
-              disabled={!image || isLoading}
+              onClick={uploadFile}
+              disabled={!file || isLoading}
             >
-              {isLoading ? (
-                <>
-                  <span className="spinner" aria-hidden="true" /> Extracting...
-                </>
-              ) : (
-                "Extract Text"
-              )}
+              {isLoading ? "Extracting..." : "Extract Text"}
             </button>
           </div>
 
-          {image && (
+          {file && (
             <div className="file-meta">
               <div>
                 <p className="muted">Selected file</p>
-                <p className="file-name">{image.name}</p>
+                <p className="file-name">{file.name}</p>
               </div>
               <div className="file-meta__right">
                 <p className="muted">
-                  {(image.size / 1024 / 1024).toFixed(2)} MB
+                  {(file.size / 1024 / 1024).toFixed(2)} MB
                 </p>
                 <button
-                  type="button"
                   className="btn tertiary"
                   onClick={resetAll}
                   disabled={isLoading}
@@ -232,20 +245,20 @@ function App() {
           {error && <div className="alert error">{error}</div>}
         </section>
 
+        {/* STEP 2 */}
         <section className="card">
           <div className="card-header">
             <div>
               <p className="eyebrow">Step 2</p>
               <h2>Extracted text</h2>
               <p className="muted">
-                Text is ready to copy, review, or hand off downstream.
+                Text is ready to copy or reuse.
               </p>
             </div>
+
             <div className="header-actions">
               {isLoading ? (
-                <span className="badge info">
-                  <span className="spinner sm" aria-hidden="true" /> Processing
-                </span>
+                <span className="badge info">Processing</span>
               ) : text ? (
                 <span className="badge success">Ready</span>
               ) : (
@@ -253,15 +266,14 @@ function App() {
               )}
 
               <button
-                type="button"
                 className="btn secondary"
                 onClick={copyToClipboard}
                 disabled={!text || isLoading}
               >
                 {copied ? "Copied" : "Copy"}
               </button>
+
               <button
-                type="button"
                 className="btn tertiary"
                 onClick={() => setText("")}
                 disabled={!text || isLoading}
